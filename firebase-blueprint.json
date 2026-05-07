@@ -1,0 +1,47 @@
+{
+  "entities": {
+    "User": {
+      "title": "User",
+      "description": "User profile data",
+      "type": "object",
+      "properties": {
+        "email": { "type": "string" },
+        "displayName": { "type": "string" },
+        "photoURL": { "type": "string" },
+        "createdAt": { "type": "string" }
+      },
+      "required": ["email"]
+    },
+    "Meal": {
+      "title": "Meal Analysis",
+      "description": "Analyzed meal photo and nutritional data",
+      "type": "object",
+      "properties": {
+        "userId": { "type": "string" },
+        "thumbnailDataUrl": { "type": "string" },
+        "calories": { "type": "number" },
+        "protein": { "type": "number" },
+        "carbs": { "type": "number" },
+        "fat": { "type": "number" },
+        "vitamins": { "type": "string" },
+        "suggestions": {
+          "type": "array",
+          "items": { "type": "string" }
+        },
+        "foodName": { "type": "string" },
+        "createdAt": { "type": "string" }
+      },
+      "required": ["userId", "calories", "foodName"]
+    }
+  },
+  "firestore": {
+    "/users/{userId}": {
+      "schema": "User",
+      "description": "Optional user profiles."
+    },
+    "/users/{userId}/meals/{mealId}": {
+      "schema": "Meal",
+      "description": "Meal history for a user, using subcollection for better isolation."
+    }
+  }
+}

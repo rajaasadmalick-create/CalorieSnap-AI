@@ -1,0 +1,8 @@
+{
+  "name": "CalorieSnap AI",
+  "description": "AI-powered meal photo analysis, calorie tracking, and nutritional suggestions.",
+  "requestFramePermissions": [
+    "camera"
+  ],
+  "majorCapabilities": []
+}

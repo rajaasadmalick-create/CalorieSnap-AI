@@ -1,0 +1,79 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // 0. Global Safety Net
+    match /{document=**} {
+      allow read, write: if false;
+    }
+
+    function isValidId(id) {
+      return id is string && id.size() <= 128 && id.matches('^[a-zA-Z0-9_\\-]+$');
+    }
+    
+    function incoming() { return request.resource.data; }
+    function existing() { return resource.data; }
+    function isSignedIn() { return request.auth != null; }
+
+    function isValidUser(data, uid) {
+      return data.keys().hasAll(['email', 'createdAt']) &&
+             data.size() >= 2 && data.size() <= 4 &&
+             data.email is string && data.email.size() <= 256 &&
+             data.createdAt == request.time &&
+             (uid == request.auth.uid) &&
+             (!('displayName' in data) || (data.displayName is string && data.displayName.size() <= 100)) &&
+             (!('photoURL' in data) || (data.photoURL is string && data.photoURL.size() <= 1000));
+    }
+
+    function isValidUserUpdate(data) {
+      return (!('displayName' in data) || (data.displayName is string && data.displayName.size() <= 100)) &&
+             (!('photoURL' in data) || (data.photoURL is string && data.photoURL.size() <= 1000)) &&
+             (!('totalScans' in data) || data.totalScans is number);
+    }
+
+    function isValidMeal(data, uid) {
+      return data.keys().hasAll(['userId', 'calories', 'foodName', 'createdAt']) &&
+             data.size() >= 4 && data.size() <= 10 &&
+             data.userId == uid &&
+             data.userId == request.auth.uid &&
+             data.calories is number && data.calories >= 0 &&
+             data.foodName is string && data.foodName.size() <= 200 &&
+             data.createdAt == request.time &&
+             (!('protein' in data) || (data.protein is number && data.protein >= 0)) &&
+             (!('carbs' in data) || (data.carbs is number && data.carbs >= 0)) &&
+             (!('fat' in data) || (data.fat is number && data.fat >= 0)) &&
+             (!('vitamins' in data) || (data.vitamins is string && data.vitamins.size() <= 2000)) &&
+             (!('thumbnailDataUrl' in data) || (data.thumbnailDataUrl is string && data.thumbnailDataUrl.size() <= 300000)) &&
+             (!('suggestions' in data) || (data.suggestions is list && data.suggestions.size() <= 10 && (data.suggestions.size() == 0 || data.suggestions[0] is string)));
+    }
+
+    match /users/{userId} {
+      allow get: if isSignedIn() && request.auth.uid == userId && isValidId(userId);
+      allow create: if isSignedIn() && request.auth.token.email_verified == true && 
+                    isValidId(userId) && isValidUser(incoming(), userId);
+      allow update: if isSignedIn() && request.auth.token.email_verified == true && 
+                    request.auth.uid == userId && isValidId(userId) &&
+                    isValidUserUpdate(incoming()) && incoming().diff(existing()).affectedKeys().hasOnly(['displayName', 'photoURL', 'totalScans']) &&
+                    (
+                      !('totalScans' in incoming().diff(existing()).affectedKeys()) || 
+                      (!('totalScans' in existing()) && incoming().totalScans == 1) || 
+                      (existing().totalScans < 1 && incoming().totalScans == existing().totalScans + 1)
+                    ) &&
+                    incoming().createdAt == existing().createdAt &&
+                    incoming().email == existing().email;
+      allow delete: if isSignedIn() && request.auth.uid == userId && isValidId(userId);
+      
+      match /meals/{mealId} {
+        allow get: if isSignedIn() && request.auth.uid == userId && isValidId(userId) && isValidId(mealId);
+        allow list: if isSignedIn() && request.auth.uid == userId && isValidId(userId);
+        
+        allow create: if isSignedIn() && request.auth.token.email_verified == true && 
+                      request.auth.uid == userId && isValidId(userId) && isValidId(mealId) &&
+                      isValidMeal(incoming(), userId);
+                      
+        allow update: if false;
+        allow delete: if isSignedIn() && request.auth.token.email_verified == true && 
+                      request.auth.uid == userId && isValidId(userId) && isValidId(mealId);
+      }
+    }
+  }
+}
