@@ -1,12 +1,8 @@
-import { useEffect, useState } from "react";
-import { collection, query, orderBy, getDocs, deleteDoc, doc } from "firebase/firestore";
-import { db } from "@/lib/firebase";
-import { useAuth } from "../contexts/AuthContext";
+import { useState } from "react";
 import { Card, CardContent } from "@/components/ui/card";
 import { Trash2, Calendar, Coffee, FileSearch } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
-import { toast } from "sonner";
 import { motion } from "motion/react";
 import {
   Dialog,
@@ -16,56 +12,16 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
-
-interface MealRecord {
-  id: string;
-  foodName: string;
-  calories: number;
-  protein: number;
-  carbs: number;
-  fat: number;
-  thumbnailDataUrl: string;
-  createdAt: any;
-}
+import { useMealHistory } from "../hooks/useMealHistory";
 
 export default function History() {
-  const { user } = useAuth();
-  const [meals, setMeals] = useState<MealRecord[]>([]);
-  const [loading, setLoading] = useState(true);
+  const { meals, loading, removeMeal } = useMealHistory();
   const [deleteId, setDeleteId] = useState<string | null>(null);
 
-  useEffect(() => {
-    if (!user) return;
-    const fetchMeals = async () => {
-      try {
-        const mealsRef = collection(db, 'users', user.uid, 'meals');
-        const q = query(mealsRef, orderBy('createdAt', 'desc'));
-        const snapshot = await getDocs(q);
-        const fetchedMeals = snapshot.docs.map(doc => ({
-          id: doc.id,
-          ...doc.data()
-        })) as MealRecord[];
-        setMeals(fetchedMeals);
-      } catch (error) {
-        console.error("Error fetching history:", error);
-        toast.error("Failed to load history.");
-      } finally {
-        setLoading(false);
-      }
-    };
-    fetchMeals();
-  }, [user]);
-
   const confirmDelete = async () => {
-    if (!deleteId || !user) return;
-    try {
-      await deleteDoc(doc(db, 'users', user.uid, 'meals', deleteId));
-      setMeals(prev => prev.filter(m => m.id !== deleteId));
-      toast.success("Meal deleted successfully.");
-    } catch (error) {
-      console.error("Error deleting meal:", error);
-      toast.error("Failed to delete meal.");
-    } finally {
+    if (!deleteId) return;
+    const success = await removeMeal(deleteId);
+    if (success) {
       setDeleteId(null);
     }
   };

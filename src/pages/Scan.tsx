@@ -1,14 +1,15 @@
-import React, { useState, useRef, useEffect } from "react";
+import React, { useState, useRef } from "react";
 import { Camera, ImagePlus, Loader2, ArrowRight, RefreshCcw, Lock, Sparkles } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardTitle, CardHeader } from "@/components/ui/card";
-import { Progress } from "@/components/ui/progress";
 import { useAuth } from "../contexts/AuthContext";
-import { collection, addDoc, serverTimestamp, doc, getDoc, updateDoc, increment } from "firebase/firestore";
+import { collection, addDoc, serverTimestamp, doc, updateDoc, increment } from "firebase/firestore";
 import { db } from "@/lib/firebase";
-import { useNavigate } from "react-router-dom";
 import { toast } from "sonner";
 import { Skeleton } from "@/components/ui/skeleton";
+import { MacroProgressBar } from "../components/MacroProgressBar";
+import { useUserLimit } from "../hooks/useUserLimit";
+import { downscaleImage, extractBase64Data } from "../lib/imageUtils";
 
 interface MealData {
   calories: number;
@@ -26,32 +27,9 @@ export default function Scan() {
   const [imageSrc, setImageSrc] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
   const [analysisResult, setAnalysisResult] = useState<MealData | null>(null);
-  
-  const [scanCount, setScanCount] = useState<number | null>(null);
-  const [checkingLimit, setCheckingLimit] = useState(true);
 
   const { user } = useAuth();
-  const navigate = useNavigate();
-
-  useEffect(() => {
-    async function checkLimit() {
-      if (!user) return;
-      try {
-        const userDocRef = doc(db, 'users', user.uid);
-        const snapshot = await getDoc(userDocRef);
-        if (snapshot.exists()) {
-          setScanCount(snapshot.data().totalScans || 0);
-        } else {
-          setScanCount(0);
-        }
-      } catch (error) {
-        console.error("Error fetching scan count:", error);
-      } finally {
-        setCheckingLimit(false);
-      }
-    }
-    checkLimit();
-  }, [user]);
+  const { scanCount, checkingLimit, reachedLimit, incrementScanCount } = useUserLimit();
 
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -70,30 +48,12 @@ export default function Scan() {
     reader.readAsDataURL(file);
   };
 
-  const downscaleImage = (dataUrl: string, maxWidth = 150): Promise<string> => {
-    return new Promise((resolve) => {
-      const img = new Image();
-      img.src = dataUrl;
-      img.onload = () => {
-        const scale = Math.min(maxWidth / img.width, 1);
-        const canvas = document.createElement('canvas');
-        canvas.width = img.width * scale;
-        canvas.height = img.height * scale;
-        const ctx = canvas.getContext('2d');
-        ctx?.drawImage(img, 0, 0, canvas.width, canvas.height);
-        resolve(canvas.toDataURL('image/jpeg', 0.6));
-      };
-    });
-  };
-
   const analyzeImage = async () => {
     if (!imageSrc || !user) return;
     setLoading(true);
 
     try {
-      // Extract base64 without the data URI prefix
-      const base64Data = imageSrc.split(',')[1];
-      const mimeType = imageSrc.split(';')[0].split(':')[1];
+      const { base64Data, mimeType } = extractBase64Data(imageSrc);
 
       const response = await fetch("/api/analyze-meal", {
         method: "POST",
@@ -137,7 +97,7 @@ export default function Scan() {
         totalScans: increment(1)
       });
 
-      setScanCount((prev) => (prev !== null ? prev + 1 : 1));
+      incrementScanCount();
       toast.success("Meal successfully analyzed and saved!");
     } catch (error) {
       console.error("Analysis Error:", error);
@@ -145,12 +105,6 @@ export default function Scan() {
     } finally {
       setLoading(false);
     }
-  };
-
-  const getMacroPercentage = (grams: number, totalCalories: number, multiplier: number) => {
-    if (!totalCalories) return 0;
-    const macroCalories = grams * multiplier;
-    return Math.min(Math.round((macroCalories / totalCalories) * 100), 100);
   };
 
   if (checkingLimit) {
@@ -162,8 +116,6 @@ export default function Scan() {
       </div>
     );
   }
-
-  const reachedLimit = scanCount !== null && scanCount >= 1;
 
   return (
     <div className="max-w-3xl mx-auto pb-12">
@@ -302,28 +254,24 @@ export default function Scan() {
                 </CardHeader>
                 <CardContent className="pt-6">
                   <div className="space-y-5">
-                     {/* ... macro bars ... */}
-                    <div>
-                      <div className="flex justify-between text-sm mb-2">
-                        <span className="font-medium text-slate-700 flex items-center"><div className="w-2 h-2 rounded-full bg-blue-500 mr-2" />Protein</span>
-                        <span className="font-bold text-slate-900">{analysisResult.protein}g</span>
-                      </div>
-                      <Progress value={getMacroPercentage(analysisResult.protein, analysisResult.calories, 4)} className="h-2 bg-slate-100" />
-                    </div>
-                    <div>
-                      <div className="flex justify-between text-sm mb-2">
-                        <span className="font-medium text-slate-700 flex items-center"><div className="w-2 h-2 rounded-full bg-yellow-500 mr-2" />Carbs</span>
-                        <span className="font-bold text-slate-900">{analysisResult.carbs}g</span>
-                      </div>
-                      <Progress value={getMacroPercentage(analysisResult.carbs, analysisResult.calories, 4)} className="h-2 bg-slate-100" />
-                    </div>
-                    <div>
-                      <div className="flex justify-between text-sm mb-2">
-                        <span className="font-medium text-slate-700 flex items-center"><div className="w-2 h-2 rounded-full bg-red-500 mr-2" />Fats</span>
-                        <span className="font-bold text-slate-900">{analysisResult.fat}g</span>
-                      </div>
-                      <Progress value={getMacroPercentage(analysisResult.fat, analysisResult.calories, 9)} className="h-2 bg-slate-100" />
-                    </div>
+                    <MacroProgressBar 
+                      label="Protein" 
+                      amountGrams={analysisResult.protein} 
+                      totalCalories={analysisResult.calories} 
+                      macronutrientType="protein" 
+                    />
+                    <MacroProgressBar 
+                      label="Carbs" 
+                      amountGrams={analysisResult.carbs} 
+                      totalCalories={analysisResult.calories} 
+                      macronutrientType="carbs" 
+                    />
+                    <MacroProgressBar 
+                      label="Fats" 
+                      amountGrams={analysisResult.fat} 
+                      totalCalories={analysisResult.calories} 
+                      macronutrientType="fat" 
+                    />
                   </div>
                 </CardContent>
               </Card>
